@@ -91,10 +91,13 @@ private fun MainScreen(onPrefs: () -> AppPreferences) {
                     if (restrictionActive) "已启用，${p.detectionInterval}s 检测一次" else "点击启用",
                     false, restrictionActive,
                     onClick = {
-                        if (!faceEnrolled) { Toast.makeText(context, "请先录入人脸", Toast.LENGTH_SHORT).show(); return@onClick }
-                        val ns = !restrictionActive; restrictionActive = ns; p.isRestrictionActive = ns
-                        if (ns) FaceGuardService.start(context) else FaceGuardService.stop(context)
-                        FileLogger.i("Main", "限制模式: ${if(ns)"开启"else"关闭"}")
+                        if (faceEnrolled) {
+                            val ns = !restrictionActive; restrictionActive = ns; p.isRestrictionActive = ns
+                            if (ns) FaceGuardService.start(context) else FaceGuardService.stop(context)
+                            FileLogger.i("Main", "限制模式: ${if(ns)"开启"else"关闭"}")
+                        } else {
+                            Toast.makeText(context, "请先录入人脸", Toast.LENGTH_SHORT).show()
+                        }
                     })
             }
 
