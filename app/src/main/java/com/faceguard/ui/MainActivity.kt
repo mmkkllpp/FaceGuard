@@ -143,20 +143,17 @@ class MainActivity : ComponentActivity() {
                 item {
                     SettingsCard(
                         items = listOf(
-                            SettingItem("权限设置", Icons.Default.Security) { context.startActivity(Intent(context, PermissionsActivity::class.java)) },
-                            SettingItem("检测间隔 ${prefs.detectionInterval}s", Icons.Default.Timer) { /* TODO: 弹窗修改 */ },
-                            SettingItem("相似度阈值 ${prefs.similarityThreshold}", Icons.Default.Tune) { /* TODO: 弹窗修改 */ },
-                            SettingItem("清除人脸数据", Icons.Default.DeleteForever, danger = true, onClick = {
+                            SettingItem(label = "权限设置", icon = Icons.Default.Security, onClick = { context.startActivity(Intent(context, PermissionsActivity::class.java)) }),
+                            SettingItem(label = "检测间隔 ${prefs.detectionInterval}s", icon = Icons.Default.Timer, onClick = { /* TODO */ }),
+                            SettingItem(label = "相似度阈值 ${prefs.similarityThreshold}", icon = Icons.Default.Tune, onClick = { /* TODO */ }),
+                            SettingItem(label = "清除人脸数据", icon = Icons.Default.DeleteForever, danger = true, onClick = {
                                 prefs.clearFaceEnrollment()
                                 faceEnrolled = false
                                 Toast.makeText(context, "人脸数据已清除", Toast.LENGTH_SHORT).show()
-                            },
-                            SettingItem("查看调试日志", Icons.Default.Description) {
-                                context.startActivity(Intent(context, LogViewerActivity::class.java))
-                            },
+                            }),
+                            SettingItem(label = "查看调试日志", icon = Icons.Default.Description, onClick = { context.startActivity(Intent(context, LogViewerActivity::class.java)) }),
                         )
                     )
-                }
 
                 item { Spacer(Modifier.height(24.dp)) }
             }
