@@ -146,7 +146,7 @@ class MainActivity : ComponentActivity() {
                             SettingItem("权限设置", Icons.Default.Security) { context.startActivity(Intent(context, PermissionsActivity::class.java)) },
                             SettingItem("检测间隔 ${prefs.detectionInterval}s", Icons.Default.Timer) { /* TODO: 弹窗修改 */ },
                             SettingItem("相似度阈值 ${prefs.similarityThreshold}", Icons.Default.Tune) { /* TODO: 弹窗修改 */ },
-                            SettingItem("清除人脸数据", Icons.Default.DeleteForever, danger = true) {
+                            SettingItem("清除人脸数据", Icons.Default.DeleteForever, danger = true, onClick = {
                                 prefs.clearFaceEnrollment()
                                 faceEnrolled = false
                                 Toast.makeText(context, "人脸数据已清除", Toast.LENGTH_SHORT).show()

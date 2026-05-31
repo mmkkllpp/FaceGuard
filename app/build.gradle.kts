@@ -78,6 +78,9 @@ dependencies {
     // WorkManager
     implementation("androidx.work:work-runtime-ktx:2.10.0")
 
+    // Gson
+    implementation("com.google.code.gson:gson:2.11.0")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
 }
