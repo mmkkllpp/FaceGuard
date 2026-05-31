@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FaceGuard</string>
+    <string name="accessibility_service_description">FaceGuard 使用此服务检测前台应用并拦截未授权应用</string>
+</resources>
