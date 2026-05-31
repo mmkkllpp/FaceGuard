@@ -75,6 +75,12 @@
             android:exported="false"
             android:theme="@style/Theme.FaceGuard" />
 
+        <!-- 调试日志 -->
+        <activity
+            android:name=".ui.LogViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.FaceGuard" />
+
         <!-- 无障碍服务 -->
         <service
             android:name=".service.AppBlockerAccessibilityService"

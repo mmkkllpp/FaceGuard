@@ -148,14 +148,19 @@ class FaceEnrollmentActivity : ComponentActivity() {
         val context = LocalContext.current
         val lifecycleOwner = LocalLifecycleOwner.current
         val executor = remember { Executors.newSingleThreadExecutor() }
+        var previewView by remember { mutableStateOf<PreviewView?>(null) }
 
-        AndroidView(factory = { ctx -> PreviewView(ctx) }, modifier = Modifier.fillMaxSize())
+        AndroidView(
+            factory = { ctx -> PreviewView(ctx).also { previewView = it } },
+            modifier = Modifier.fillMaxSize()
+        )
 
         LaunchedEffect(Unit) {
+            val pv = previewView ?: return@LaunchedEffect
             val providerFuture = ProcessCameraProvider.getInstance(context)
             providerFuture.addListener({
                 val provider = providerFuture.get()
-                val preview = Preview.Builder().build()
+                val preview = Preview.Builder().build().also { it.setSurfaceProvider(pv.surfaceProvider) }
                 val analysis = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
