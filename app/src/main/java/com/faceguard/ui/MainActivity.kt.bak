@@ -106,11 +106,11 @@ private fun MainScreen(onPrefs: () -> AppPreferences) {
 
             item {
                 SettingsCard(items = listOf(
-                    SItem(label = "权限设置", icon = Icons.Default.Security, onClick = { context.startActivity(Intent(context, PermissionsActivity::class.java)) }),
-                    SItem(label = "检测间隔 ${p.detectionInterval}s", icon = Icons.Default.Timer, onClick = {}),
-                    SItem(label = "相似度阈值 ${p.similarityThreshold}", icon = Icons.Default.Tune, onClick = {}),
-                    SItem(label = "清除人脸数据", icon = Icons.Default.DeleteForever, danger = true, onClick = { p.clearFaceEnrollment(); faceEnrolled = false; Toast.makeText(context, "已清除", Toast.LENGTH_SHORT).show() }),
-                    SItem(label = "查看调试日志", icon = Icons.Default.Description, onClick = { context.startActivity(Intent(context, LogViewerActivity::class.java)) }),
+                    SItem("权限设置", Icons.Default.Security) { context.startActivity(Intent(context, PermissionsActivity::class.java)) },
+                    SItem("检测间隔 ${p.detectionInterval}s", Icons.Default.Timer) {},
+                    SItem("相似度阈值 ${p.similarityThreshold}", Icons.Default.Tune) {},
+                    SItem("清除人脸数据", Icons.Default.DeleteForever, danger = true) { p.clearFaceEnrollment(); faceEnrolled = false; Toast.makeText(context, "已清除", Toast.LENGTH_SHORT).show() },
+                    SItem("查看调试日志", Icons.Default.Description) { context.startActivity(Intent(context, LogViewerActivity::class.java)) },
                 ))
             }
 
