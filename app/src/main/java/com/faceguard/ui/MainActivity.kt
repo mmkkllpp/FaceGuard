@@ -119,15 +119,15 @@ private fun MainScreen(refreshKey: Int = 0) {
 
             item {
                 SettingsCard(items = listOf(
-                    SItem("权限设置", Icons.Default.Security) { context.startActivity(Intent(context, PermissionsActivity::class.java)) },
-                    SItem("检测间隔 ${interval}s", Icons.Default.Timer) { showIntervalDialog = true },
-                    SItem("相似度阈值 ${threshold}", Icons.Default.Tune) { showThresholdDialog = true },
-                    SItem("清除人脸数据", Icons.Default.DeleteForever, danger = true) {
+                    SItem(label = "权限设置", icon = Icons.Default.Security, onClick = { context.startActivity(Intent(context, PermissionsActivity::class.java)) }),
+                    SItem(label = "检测间隔 ${interval}s", icon = Icons.Default.Timer, onClick = { showIntervalDialog = true }),
+                    SItem(label = "相似度阈值 ${threshold}", icon = Icons.Default.Tune, onClick = { showThresholdDialog = true }),
+                    SItem(label = "清除人脸数据", icon = Icons.Default.DeleteForever, danger = true, onClick = {
                         p.clearFaceEnrollment()
                         Toast.makeText(context, "人脸数据已清除", Toast.LENGTH_SHORT).show()
                         (context as? android.app.Activity)?.recreate()
-                    },
-                    SItem("查看调试日志", Icons.Default.Description) { context.startActivity(Intent(context, LogViewerActivity::class.java)) },
+                    }),
+                    SItem(label = "查看调试日志", icon = Icons.Default.Description, onClick = { context.startActivity(Intent(context, LogViewerActivity::class.java)) }),
                 ))
             }
 
