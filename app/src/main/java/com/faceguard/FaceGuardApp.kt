@@ -3,8 +3,9 @@ package com.faceguard
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.os.Build
 import com.faceguard.util.FileLogger
+import java.io.PrintWriter
+import java.io.StringWriter
 
 class FaceGuardApp : Application() {
 
@@ -20,7 +21,15 @@ class FaceGuardApp : Application() {
         super.onCreate()
         instance = this
         FileLogger.init(this)
-        FileLogger.i("FaceGuard", "应用启动")
+        // 全局崩溃捕获
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            val sw = StringWriter()
+            PrintWriter(sw).use { throwable.printStackTrace(it) }
+            FileLogger.e("CRASH", "线程: ${thread.name}\n${sw.toString()}")
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+        FileLogger.i("FaceGuard", "应用启动 (崩溃处理器已注册)")
         createNotificationChannels()
     }
 

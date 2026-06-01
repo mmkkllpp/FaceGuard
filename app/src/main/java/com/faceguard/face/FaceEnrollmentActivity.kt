@@ -17,6 +17,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -45,6 +46,7 @@ class FaceEnrollmentActivity : ComponentActivity() {
     private lateinit var prefs: AppPreferences
     private var faceEngine: FaceEngine? = null
     private var capturedEmbeddings = mutableListOf<FloatArray>()
+    @Volatile
     private var isProcessing = false
     private var cameraGranted = false
 
@@ -52,18 +54,27 @@ class FaceEnrollmentActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         cameraGranted = granted
+        FileLogger.i("Enroll", "相机权限: ${if(granted)"已授权"else"被拒绝"}")
         if (!granted) { Toast.makeText(this, "需要相机权限", Toast.LENGTH_LONG).show(); finish() }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = AppPreferences(this)
+        FileLogger.i("Enroll", "人脸录入界面启动")
+
         cameraGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        FileLogger.i("Enroll", "相机权限状态: $cameraGranted")
         if (!cameraGranted) permissionLauncher.launch(Manifest.permission.CAMERA)
 
         faceEngine = FaceEngine(this).also { engine ->
             val modelFile = ModelDownloadManager(this).getModelFile()
-            if (modelFile.exists()) engine.loadModel(ArcFaceSession.load(modelFile))
+            if (modelFile.exists()) {
+                engine.loadModel(ArcFaceSession.load(modelFile))
+                FileLogger.i("Enroll", "ArcFace 模型已加载")
+            } else {
+                FileLogger.w("Enroll", "ArcFace 模型不存在，使用降级模式")
+            }
         }
 
         setContent { FaceGuardTheme { EnrollmentScreen() } }
@@ -149,6 +160,7 @@ class FaceEnrollmentActivity : ComponentActivity() {
         val lifecycleOwner = LocalLifecycleOwner.current
         val executor = remember { Executors.newSingleThreadExecutor() }
         var previewView by remember { mutableStateOf<PreviewView?>(null) }
+        var cameraReady by remember { mutableStateOf(false) }
 
         AndroidView(
             factory = { ctx -> PreviewView(ctx).also { previewView = it } },
@@ -156,23 +168,45 @@ class FaceEnrollmentActivity : ComponentActivity() {
         )
 
         LaunchedEffect(Unit) {
-            val pv = previewView ?: return@LaunchedEffect
-            val providerFuture = ProcessCameraProvider.getInstance(context)
-            providerFuture.addListener({
-                val provider = providerFuture.get()
-                val preview = Preview.Builder().build().also { it.setSurfaceProvider(pv.surfaceProvider) }
-                val analysis = ImageAnalysis.Builder()
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .build()
-                    .also { it.setAnalyzer(executor) { proxy ->
-                        if (isProcessing) { proxy.close(); return@setAnalyzer }
-                        val bmp = imageProxyToBitmap(proxy)
-                        proxy.close()
-                        if (bmp != null) onFrame(bmp)
-                    } }
-                try { provider.unbindAll(); provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_FRONT_CAMERA, preview, analysis) }
-                catch (e: Exception) { FileLogger.e("Camera", "绑定失败: ${e.message}") }
-            }, ContextCompat.getMainExecutor(context))
+            try {
+                val pv = previewView
+                if (pv == null) { FileLogger.e("Camera", "PreviewView is null"); return@LaunchedEffect }
+                FileLogger.i("Camera", "开始初始化相机...")
+                val providerFuture = ProcessCameraProvider.getInstance(context)
+                providerFuture.addListener({
+                    val provider = providerFuture.get()
+                    FileLogger.i("Camera", "CameraProvider 获取成功")
+
+                    val preview = Preview.Builder().build().also { it.setSurfaceProvider(pv.surfaceProvider) }
+                    val analysis = ImageAnalysis.Builder()
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build()
+                        .also { it.setAnalyzer(executor) { proxy ->
+                            if (isProcessing) { proxy.close(); return@setAnalyzer }
+                            val bmp = imageProxyToBitmap(proxy)
+                            proxy.close()
+                            if (bmp != null) onFrame(bmp)
+                        } }
+                    try {
+                        provider.unbindAll()
+                        provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_FRONT_CAMERA, preview, analysis)
+                        cameraReady = true
+                        FileLogger.i("Camera", "相机绑定成功 (前置)")
+                    } catch (e: Exception) {
+                        FileLogger.e("Camera", "相机绑定失败: ${e.message}\n${e.stackTraceToString()}")
+                    }
+                }, ContextCompat.getMainExecutor(context)).addFailureListener {
+                    FileLogger.e("Camera", "CameraProvider 获取失败: ${it.message}")
+                }
+            } catch (e: Exception) {
+                FileLogger.e("Camera", "相机初始化异常: ${e.message}\n${e.stackTraceToString()}")
+            }
+        }
+
+        if (!cameraReady) {
+            Box(modifier = Modifier.fillMaxSize().background(Color(0xFF2A2A4E)), contentAlignment = Alignment.Center) {
+                Text("相机加载中...", color = Color.Gray)
+            }
         }
     }
 
