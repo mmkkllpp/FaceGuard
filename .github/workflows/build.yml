@@ -3,8 +3,6 @@ name: Build APK
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
@@ -26,6 +24,18 @@ jobs:
 
       - name: 授权
         run: chmod +x gradlew
+
+      - name: 自动递增版本号
+        run: |
+          # 从 build.gradle.kts 读取当前 versionCode
+          CURRENT=$(grep "versionCode = " app/build.gradle.kts | sed 's/.*= //')
+          NEW=$((CURRENT + 1))
+          # 更新 versionCode
+          sed -i "s/versionCode = $CURRENT/versionCode = $NEW/" app/build.gradle.kts
+          # 更新 versionName (取日期作为小版本)
+          DATE=$(date +%y%m%d)
+          sed -i "s/versionName = \".*\"/versionName = \"1.$DATE.$NEW\"/" app/build.gradle.kts
+          echo "版本号: $CURRENT → $NEW (1.$DATE.$NEW)"
 
       - name: 编译 Debug APK
         run: ./gradlew assembleDebug

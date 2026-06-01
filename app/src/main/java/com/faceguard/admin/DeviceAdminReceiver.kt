@@ -18,7 +18,7 @@ class DeviceAdminReceiver : DeviceAdminReceiver() {
     }
 
     override fun onDisableRequested(context: Context, intent: Intent): CharSequence {
-        return "禁用设备管理员会降低 FaceGuard 的保护能力，建议保留"
+        return "正在更新应用？可以安全地暂时禁用，安装新版后重新启用即可"
     }
 
     companion object {

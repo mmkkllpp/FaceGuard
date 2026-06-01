@@ -18,62 +18,69 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.faceguard.admin.DeviceAdminReceiver
 import com.faceguard.data.AppPreferences
 import com.faceguard.face.FaceEnrollmentActivity
 import com.faceguard.face.ModelDownloadActivity
 import com.faceguard.face.ModelDownloadManager
 import com.faceguard.service.FaceGuardService
 import com.faceguard.util.FileLogger
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
+
+    private var refreshKey = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val prefs = AppPreferences(this)
         FileLogger.i("Main", "主界面启动")
-        setContent { FaceGuardTheme { MainScreen(onPrefs = { prefs }) } }
+        setContent { FaceGuardTheme { MainScreen(refreshKey) } }
     }
 
     override fun onResume() {
         super.onResume()
-        val prefs = AppPreferences(this)
-        setContent { FaceGuardTheme { MainScreen(onPrefs = { prefs }) } }
+        // 每次返回时刷新所有状态（模型状态、人脸状态等）
+        refreshKey++
+        setContent { FaceGuardTheme { MainScreen(refreshKey) } }
     }
 }
 
-// ── 状态 ──
-private class MState(
-    val faceEnrolled: Boolean,
-    val restrictionActive: Boolean,
-    val modelReady: Boolean,
-    val interval: Int,
-    val threshold: Float
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MainScreen(onPrefs: () -> AppPreferences) {
+private fun MainScreen(refreshKey: Int = 0) {
     val context = LocalContext.current
-    val p = onPrefs()
+    val p = remember { AppPreferences(context) }
 
-    var faceEnrolled by remember { mutableStateOf(p.isFaceEnrolled()) }
-    var restrictionActive by remember { mutableStateOf(p.isRestrictionActive) }
-    var modelReady by remember { mutableStateOf(ModelDownloadManager(context).isModelReady()) }
+    // 每次 refreshKey 变化时重新读取
+    val faceEnrolled by remember(refreshKey) { mutableStateOf(p.isFaceEnrolled()) }
+    val restrictionActive by remember(refreshKey) { mutableStateOf(p.isRestrictionActive) }
+    val modelReady by remember(refreshKey) { mutableStateOf(ModelDownloadManager(context).isModelReady()) }
+    val interval by remember(refreshKey) { mutableStateOf(p.detectionInterval) }
+    val threshold by remember(refreshKey) { mutableStateOf(p.similarityThreshold) }
+
+    var showIntervalDialog by remember { mutableStateOf(false) }
+    var showThresholdDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("FaceGuard", fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface, titleContentColor = MaterialTheme.colorScheme.onSurface)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                )
             )
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { pad ->
-        LazyColumn(Modifier.fillMaxSize().padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // ── 状态卡片 ──
-            item { StatusCard(faceEnrolled, restrictionActive, modelReady, p.detectionInterval) }
+        LazyColumn(
+            Modifier.fillMaxSize().padding(pad).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // ── 状态 ──
+            item { StatusCard(faceEnrolled, restrictionActive, modelReady, interval) }
 
             // ── 快捷操作 ──
             item { Text("快捷操作", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -88,15 +95,18 @@ private fun MainScreen(onPrefs: () -> AppPreferences) {
                 ActionBtn(
                     if (restrictionActive) Icons.Default.Lock else Icons.Default.LockOpen,
                     if (restrictionActive) "停用限制模式" else "启用限制模式",
-                    if (restrictionActive) "已启用，${p.detectionInterval}s 检测一次" else "点击启用",
+                    if (restrictionActive) "已启用，${interval}s 检测一次" else "点击启用",
                     false, restrictionActive,
                     onClick = {
-                        if (faceEnrolled) {
-                            val ns = !restrictionActive; restrictionActive = ns; p.isRestrictionActive = ns
-                            if (ns) FaceGuardService.start(context) else FaceGuardService.stop(context)
-                            FileLogger.i("Main", "限制模式: ${if(ns)"开启"else"关闭"}")
-                        } else {
+                        if (!faceEnrolled) {
                             Toast.makeText(context, "请先录入人脸", Toast.LENGTH_SHORT).show()
+                        } else {
+                            val ns = !restrictionActive
+                            p.isRestrictionActive = ns
+                            if (ns) FaceGuardService.start(context) else FaceGuardService.stop(context)
+                            FileLogger.i("Main", "限制模式: ${if (ns) "开启" else "关闭"}")
+                            // 触发刷新
+                            (context as? android.app.Activity)?.recreate()
                         }
                     })
             }
@@ -109,37 +119,104 @@ private fun MainScreen(onPrefs: () -> AppPreferences) {
 
             item {
                 SettingsCard(items = listOf(
-                    SItem(label = "权限设置", icon = Icons.Default.Security, onClick = { context.startActivity(Intent(context, PermissionsActivity::class.java)) }),
-                    SItem(label = "检测间隔 ${p.detectionInterval}s", icon = Icons.Default.Timer, onClick = {}),
-                    SItem(label = "相似度阈值 ${p.similarityThreshold}", icon = Icons.Default.Tune, onClick = {}),
-                    SItem(label = "清除人脸数据", icon = Icons.Default.DeleteForever, danger = true, onClick = { p.clearFaceEnrollment(); faceEnrolled = false; Toast.makeText(context, "已清除", Toast.LENGTH_SHORT).show() }),
-                    SItem(label = "查看调试日志", icon = Icons.Default.Description, onClick = { context.startActivity(Intent(context, LogViewerActivity::class.java)) }),
+                    SItem("权限设置", Icons.Default.Security) { context.startActivity(Intent(context, PermissionsActivity::class.java)) },
+                    SItem("检测间隔 ${interval}s", Icons.Default.Timer) { showIntervalDialog = true },
+                    SItem("相似度阈值 ${threshold}", Icons.Default.Tune) { showThresholdDialog = true },
+                    SItem("清除人脸数据", Icons.Default.DeleteForever, danger = true) {
+                        p.clearFaceEnrollment()
+                        Toast.makeText(context, "人脸数据已清除", Toast.LENGTH_SHORT).show()
+                        (context as? android.app.Activity)?.recreate()
+                    },
+                    SItem("查看调试日志", Icons.Default.Description) { context.startActivity(Intent(context, LogViewerActivity::class.java)) },
                 ))
             }
 
             item { Spacer(Modifier.height(24.dp)) }
         }
     }
+
+    // ── 检测间隔对话框 ──
+    if (showIntervalDialog) {
+        AlertDialog(
+            onDismissRequest = { showIntervalDialog = false },
+            title = { Text("检测间隔") },
+            text = {
+                Column {
+                    Text("当前: ${interval} 秒", modifier = Modifier.padding(bottom = 12.dp))
+                    val options = listOf(30, 60, 90, 120, 180, 300)
+                    options.forEach { opt ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                p.detectionInterval = opt
+                                showIntervalDialog = false
+                                (context as? android.app.Activity)?.recreate()
+                            }.padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(selected = interval == opt, onClick = {})
+                            Spacer(Modifier.width(8.dp))
+                            Text("${opt} 秒")
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showIntervalDialog = false }) { Text("取消") } }
+        )
+    }
+
+    // ── 相似度阈值对话框 ──
+    if (showThresholdDialog) {
+        AlertDialog(
+            onDismissRequest = { showThresholdDialog = false },
+            title = { Text("相似度阈值") },
+            text = {
+                Column {
+                    Text("当前: $threshold", modifier = Modifier.padding(bottom = 12.dp))
+                    Text("值越高越严格，推荐 0.5 - 0.8", fontSize = 12.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 8.dp))
+                    Slider(
+                        value = threshold,
+                        onValueChange = {},
+                        onValueChangeFinished = {
+                            val rounded = (threshold * 10).roundToInt() / 10f
+                            p.similarityThreshold = rounded.let { (threshold * 10).roundToInt() / 10f }
+                            showThresholdDialog = false
+                            (context as? android.app.Activity)?.recreate()
+                        },
+                        valueRange = 0.3f..0.9f,
+                        steps = 5
+                    )
+                    Text("${(threshold * 100).roundToInt()}%", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                }
+            },
+            confirmButton = { TextButton(onClick = { showThresholdDialog = false }) { Text("取消") } }
+        )
+    }
 }
 
-// ── 状态卡片 ──
 @Composable
 private fun StatusCard(enrolled: Boolean, restricted: Boolean, modelReady: Boolean, interval: Int) {
-    val bg = when { restricted -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f); enrolled -> Color(0xFF1A4A2E); else -> MaterialTheme.colorScheme.surfaceVariant }
-    val icon = when { restricted -> Icons.Default.WarningAmber; enrolled -> Icons.Default.VerifiedUser; else -> Icons.Default.Info }
+    val bg = when {
+        restricted -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+        enrolled -> Color(0xFF1A4A2E)
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
     Card(colors = CardDefaults.cardColors(containerColor = bg), modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, "", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(40.dp))
+            Icon(when { restricted -> Icons.Default.WarningAmber; enrolled -> Icons.Default.VerifiedUser; else -> Icons.Default.Info }, "",
+                tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(40.dp))
             Spacer(Modifier.width(16.dp))
             Column {
-                Text(when { restricted -> "⚠️ 限制模式已激活"; enrolled -> "✅ 防护就绪"; else -> "⚠️ 未配置" }, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                Text(when { restricted -> "非录入用户使用将被拦截"; !enrolled -> "请录入人脸并开启限制模式"; !modelReady -> "建议下载识别模型"; else -> "一切正常，${interval}s 检测一次" }, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(when { restricted -> "⚠️ 限制模式已激活"; enrolled -> "✅ 防护就绪"; else -> "⚠️ 未配置" },
+                    fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text(when { restricted -> "非录入用户使用将被拦截"; !enrolled -> "请录入人脸并开启限制模式"
+                    !modelReady -> "建议下载识别模型提高精度"; else -> "一切正常，${interval}s 检测一次" },
+                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
 }
 
-// ── 操作按钮 ──
 @Composable
 private fun ActionBtn(icon: ImageVector, label: String, desc: String, primary: Boolean = false, danger: Boolean = false, onClick: () -> Unit) {
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick), colors = CardDefaults.cardColors(
@@ -154,10 +231,8 @@ private fun ActionBtn(icon: ImageVector, label: String, desc: String, primary: B
     }
 }
 
-// ── 设置项数据 ──
 private data class SItem(val label: String, val icon: ImageVector, val onClick: () -> Unit, val danger: Boolean = false)
 
-// ── 设置卡片 ──
 @Composable
 private fun SettingsCard(items: List<SItem>) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {

@@ -17,7 +17,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -39,22 +38,23 @@ import com.faceguard.data.AppPreferences
 import com.faceguard.ui.FaceGuardTheme
 import com.faceguard.util.FileLogger
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 class FaceEnrollmentActivity : ComponentActivity() {
 
     private val cameraExecutor = Executors.newSingleThreadExecutor()
     private lateinit var prefs: AppPreferences
     private var faceEngine: FaceEngine? = null
-    private var capturedEmbeddings = mutableListOf<FloatArray>()
-    @Volatile
-    private var isProcessing = false
+    private val capturedEmbeddings = mutableListOf<FloatArray>()
+    private val isProcessing = AtomicBoolean(false)
+
     private var cameraGranted = false
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         cameraGranted = granted
-        FileLogger.i("Enroll", "相机权限: ${if(granted)"已授权"else"被拒绝"}")
+        FileLogger.i("Enroll", "相机权限: ${if (granted) "已授权" else "被拒绝"}")
         if (!granted) { Toast.makeText(this, "需要相机权限", Toast.LENGTH_LONG).show(); finish() }
     }
 
@@ -85,38 +85,40 @@ class FaceEnrollmentActivity : ComponentActivity() {
         val context = LocalContext.current
         var state by remember { mutableStateOf(EnrollState.IDLE) }
         var samples by remember { mutableIntStateOf(0) }
+        var statusText by remember { mutableStateOf("") }
         val required = 5
 
         Box(Modifier.fillMaxSize().background(Color(0xFF1A1A2E))) {
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                // TopBar
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { finish() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = Color.White) }
                     Text("人脸录入", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 }
+
+                // Camera area
                 Box(Modifier.fillMaxWidth().weight(1f).padding(16.dp).clip(RoundedCornerShape(16.dp))) {
                     if (cameraGranted && state != EnrollState.DONE) {
                         CameraPreview(
-                            onFrame = { bitmap ->
-                                if (state == EnrollState.CAPTURING && !isProcessing) {
-                                    isProcessing = true
-                                    val engine = faceEngine ?: return@CameraPreview
-                                    kotlinx.coroutines.runBlocking {
-                                        val result = engine.detectAndEmbed(bitmap)
-                                        if (result != null && result.livenessOk) {
-                                            capturedEmbeddings.add(result.embedding)
-                                            samples = capturedEmbeddings.size
-                                            if (samples >= required) {
-                                                state = EnrollState.DONE
-                                                val avg = averageEmbeddings(capturedEmbeddings)
-                                                prefs.saveFaceEmbedding(avg)
-                                                FileLogger.i("Enroll", "录入完成")
-                                            }
-                                        }
+                            onFaceDetected = { emb ->
+                                if (state == EnrollState.CAPTURING && !isProcessing.get()) {
+                                    isProcessing.set(true)
+                                    capturedEmbeddings.add(emb)
+                                    samples = capturedEmbeddings.size
+                                    FileLogger.i("Enroll", "捕获样本 $samples/$required")
+                                    isProcessing.set(false)
+                                    if (samples >= required) {
+                                        state = EnrollState.DONE
+                                        val avg = averageEmbeddings(capturedEmbeddings)
+                                        prefs.saveFaceEmbedding(avg)
+                                        FileLogger.i("Enroll", "录入完成")
+                                    } else {
+                                        statusText = "样本 $samples / $required"
                                     }
-                                    isProcessing = false
                                 }
                             }
                         )
+                        // 引导圈
                         Box(Modifier.size(200.dp).align(Alignment.Center).border(3.dp, Color(0xFF00D4AA), CircleShape))
                     } else if (state == EnrollState.DONE) {
                         Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -125,6 +127,8 @@ class FaceEnrollmentActivity : ComponentActivity() {
                         }
                     }
                 }
+
+                // Controls
                 Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     when (state) {
                         EnrollState.IDLE -> {
@@ -132,7 +136,7 @@ class FaceEnrollmentActivity : ComponentActivity() {
                             Spacer(Modifier.height(8.dp))
                             Text("采集 $required 个样本", color = Color.Gray, fontSize = 14.sp)
                             Spacer(Modifier.height(16.dp))
-                            Button(onClick = { state = EnrollState.CAPTURING },
+                            Button(onClick = { state = EnrollState.CAPTURING; statusText = "等待人脸检测..." },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00D4AA)),
                                 modifier = Modifier.fillMaxWidth().height(56.dp)) {
                                 Text("开始录入", color = Color(0xFF1A1A2E), fontWeight = FontWeight.Bold)
@@ -141,11 +145,12 @@ class FaceEnrollmentActivity : ComponentActivity() {
                         EnrollState.CAPTURING -> {
                             Text("样本 $samples / $required", color = Color(0xFF00D4AA), fontSize = 24.sp, fontWeight = FontWeight.Bold)
                             Spacer(Modifier.height(8.dp))
-                            LinearProgressIndicator(progress = { samples.toFloat() / required },
+                            LinearProgressIndicator(
+                                progress = { if (required > 0) samples.toFloat() / required else 0f },
                                 modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
                                 color = Color(0xFF00D4AA), trackColor = Color(0xFF2A2A4E))
                             Spacer(Modifier.height(8.dp))
-                            Text("保持不动...", color = Color.Gray, fontSize = 14.sp)
+                            Text(statusText, color = Color.Gray, fontSize = 14.sp)
                         }
                         EnrollState.DONE -> {}
                     }
@@ -155,54 +160,66 @@ class FaceEnrollmentActivity : ComponentActivity() {
     }
 
     @Composable
-    fun CameraPreview(onFrame: (Bitmap) -> Unit) {
+    fun CameraPreview(onFaceDetected: (FloatArray) -> Unit) {
         val context = LocalContext.current
         val lifecycleOwner = LocalLifecycleOwner.current
         val executor = remember { Executors.newSingleThreadExecutor() }
         var previewView by remember { mutableStateOf<PreviewView?>(null) }
         var cameraReady by remember { mutableStateOf(false) }
+        val engine = faceEngine
 
+        // AndroidView 先渲染
         AndroidView(
             factory = { ctx -> PreviewView(ctx).also { previewView = it } },
             modifier = Modifier.fillMaxSize()
         )
 
-        LaunchedEffect(Unit) {
+        // 等 previewView 可用后再初始化相机
+        LaunchedEffect(previewView) {
+            val pv = previewView ?: return@LaunchedEffect
+            if (engine == null) { FileLogger.e("Enroll", "FaceEngine 未初始化"); return@LaunchedEffect }
+
             try {
-                val pv = previewView
-                if (pv == null) { FileLogger.e("Camera", "PreviewView is null"); return@LaunchedEffect }
-                FileLogger.i("Camera", "开始初始化相机...")
+                FileLogger.i("Enroll", "开始初始化相机...")
                 val providerFuture = ProcessCameraProvider.getInstance(context)
                 providerFuture.addListener({
                     val provider = providerFuture.get()
-                    FileLogger.i("Camera", "CameraProvider 获取成功")
+                    FileLogger.i("Enroll", "CameraProvider 获取成功")
 
                     val preview = Preview.Builder().build().also { it.setSurfaceProvider(pv.surfaceProvider) }
                     val analysis = ImageAnalysis.Builder()
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build()
                         .also { it.setAnalyzer(executor) { proxy ->
-                            if (isProcessing) { proxy.close(); return@setAnalyzer }
+                            if (isProcessing.get()) { proxy.close(); return@setAnalyzer }
                             val bmp = imageProxyToBitmap(proxy)
                             proxy.close()
-                            if (bmp != null) onFrame(bmp)
+                            if (bmp == null) return@setAnalyzer
+
+                            isProcessing.set(true)
+                            kotlinx.coroutines.runBlocking {
+                                val result = engine.detectAndEmbed(bmp)
+                                bmp.recycle()
+                                if (result != null && result.livenessOk) {
+                                    // 发送到主线程处理
+                                    onFaceDetected(result.embedding)
+                                }
+                            }
+                            isProcessing.set(false)
                         } }
-                    try {
-                        provider.unbindAll()
-                        provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_FRONT_CAMERA, preview, analysis)
-                        cameraReady = true
-                        FileLogger.i("Camera", "相机绑定成功 (前置)")
-                    } catch (e: Exception) {
-                        FileLogger.e("Camera", "相机绑定失败: ${e.message}\n${e.stackTraceToString()}")
-                    }
+
+                    provider.unbindAll()
+                    provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_FRONT_CAMERA, preview, analysis)
+                    cameraReady = true
+                    FileLogger.i("Enroll", "相机绑定成功 (前置)")
                 }, ContextCompat.getMainExecutor(context))
             } catch (e: Exception) {
-                FileLogger.e("Camera", "相机初始化异常: ${e.message}")
+                FileLogger.e("Enroll", "相机初始化失败: ${e.message}")
             }
         }
 
         if (!cameraReady) {
-            Box(modifier = Modifier.fillMaxSize().background(Color(0xFF2A2A4E)), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize().background(Color(0xFF2A2A4E)), contentAlignment = Alignment.Center) {
                 Text("相机加载中...", color = Color.Gray)
             }
         }
@@ -210,10 +227,12 @@ class FaceEnrollmentActivity : ComponentActivity() {
 
     private fun imageProxyToBitmap(proxy: ImageProxy): Bitmap? {
         return try {
-            val buffer = proxy.planes[0].buffer; val bytes = ByteArray(buffer.remaining()); buffer.get(bytes)
+            val buffer = proxy.planes[0].buffer
+            val bytes = ByteArray(buffer.remaining()); buffer.get(bytes)
             val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
             val m = android.graphics.Matrix().apply { postScale(-1f, 1f, bmp.width / 2f, bmp.height / 2f) }
-            val mirrored = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true); bmp.recycle(); mirrored
+            val mirrored = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+            bmp.recycle(); mirrored
         } catch (_: Exception) { null }
     }
 
