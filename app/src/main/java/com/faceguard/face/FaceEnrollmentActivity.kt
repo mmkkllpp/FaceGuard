@@ -37,6 +37,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.faceguard.data.AppPreferences
 import com.faceguard.ui.FaceGuardTheme
 import com.faceguard.util.FileLogger
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -191,21 +192,27 @@ class FaceEnrollmentActivity : ComponentActivity() {
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build()
                         .also { it.setAnalyzer(executor) { proxy ->
-                            if (isProcessing.get()) { proxy.close(); return@setAnalyzer }
-                            val bmp = imageProxyToBitmap(proxy)
-                            proxy.close()
-                            if (bmp == null) return@setAnalyzer
-
-                            isProcessing.set(true)
-                            kotlinx.coroutines.runBlocking {
-                                val result = engine.detectAndEmbed(bmp)
-                                bmp.recycle()
-                                if (result != null && result.livenessOk) {
-                                    // 发送到主线程处理
-                                    onFaceDetected(result.embedding)
-                                }
+                            if (!isProcessing.compareAndSet(false, true)) {
+                                proxy.close()
+                                return@setAnalyzer
                             }
-                            isProcessing.set(false)
+                            try {
+                                val bmp = imageProxyToBitmap(proxy)
+                                if (bmp != null) {
+                                    kotlinx.coroutines.runBlocking {
+                                        val result = engine.detectAndEmbed(bmp)
+                                        bmp.recycle()
+                                        if (result != null && result.livenessOk) {
+                                            onFaceDetected(result.embedding)
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                FileLogger.e("Enroll", "分析异常: ${e.message}")
+                            } finally {
+                                proxy.close()
+                                isProcessing.set(false)
+                            }
                         } }
 
                     provider.unbindAll()
@@ -227,13 +234,70 @@ class FaceEnrollmentActivity : ComponentActivity() {
 
     private fun imageProxyToBitmap(proxy: ImageProxy): Bitmap? {
         return try {
-            val buffer = proxy.planes[0].buffer
-            val bytes = ByteArray(buffer.remaining()); buffer.get(bytes)
-            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            val planes = proxy.planes
+            val w = proxy.width
+            val h = proxy.height
+
+            // ── YUV_420_888 → NV21 ──
+            val yPlane = planes[0]
+            val uPlane = planes[1]
+            val vPlane = planes[2]
+
+            val ySize = yPlane.rowStride * h
+            val uvSize = (w * h) / 2
+            val nv21 = ByteArray(ySize + uvSize)
+
+            // 复制 Y（处理 pixelStride > 1 的情况，如某些 Huawei / Pixel）
+            val yBuf = ByteArray(yPlane.buffer.remaining())
+            yPlane.buffer.get(yBuf)
+            if (yPlane.pixelStride == 1) {
+                System.arraycopy(yBuf, 0, nv21, 0, ySize)
+            } else {
+                var pos = 0
+                for (row in 0 until h) {
+                    for (col in 0 until w) {
+                        nv21[pos++] = yBuf[row * yPlane.rowStride + col * yPlane.pixelStride]
+                    }
+                }
+            }
+
+            // 复制 UV（NV21 顺序是 V 在前, U 在后）
+            val uSize = uPlane.buffer.remaining()
+            val vSize = vPlane.buffer.remaining()
+            val uBuf = ByteArray(uSize)
+            val vBuf = ByteArray(vSize)
+            uPlane.buffer.get(uBuf)
+            vPlane.buffer.get(vBuf)
+
+            var uvPos = ySize
+            val uvW = minOf(uPlane.rowStride / uPlane.pixelStride, w / 2)
+            val uvH = h / 2
+            for (row in 0 until uvH) {
+                for (col in 0 until uvW) {
+                    val src = row * uPlane.rowStride + col * uPlane.pixelStride
+                    if (src < vBuf.size && src < uBuf.size && uvPos + 1 < nv21.size) {
+                        nv21[uvPos++] = vBuf[src]  // V
+                        nv21[uvPos++] = uBuf[src]  // U
+                    }
+                }
+            }
+
+            // ── NV21 → JPEG → Bitmap ──
+            val yuvImage = android.graphics.YuvImage(nv21, android.graphics.ImageFormat.NV21, w, h, null)
+            val out = ByteArrayOutputStream()
+            yuvImage.compressToJpeg(android.graphics.Rect(0, 0, w, h), 90, out)
+            val jpeg = out.toByteArray()
+            val bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return null
+
+            // 前置摄像头水平镜像翻转
             val m = android.graphics.Matrix().apply { postScale(-1f, 1f, bmp.width / 2f, bmp.height / 2f) }
             val mirrored = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
-            bmp.recycle(); mirrored
-        } catch (_: Exception) { null }
+            bmp.recycle()
+            mirrored
+        } catch (e: Exception) {
+            FileLogger.e("Enroll", "Bitmap 转换失败: ${e.message}")
+            null
+        }
     }
 
     private fun averageEmbeddings(list: List<FloatArray>): FloatArray {

@@ -1,6 +1,7 @@
 package com.faceguard.ui
 
 import android.Manifest
+import android.app.admin.DevicePolicyManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -98,7 +99,14 @@ private fun PermissionsScreen() {
                                 onClick = {
                                     val intent = when (def.label) {
                                         "无障碍服务" -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                                        "设备管理员" -> Intent(Settings.ACTION_SECURITY_SETTINGS)
+                                        "设备管理员" -> {
+                                            Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                                                putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN,
+                                                    com.faceguard.admin.DeviceAdminReceiver.getComponent(context))
+                                                putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                                                    "FaceGuard 需要设备管理员权限来防卸载和锁屏")
+                                            }
+                                        }
                                         "使用情况访问" -> Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
                                         "悬浮窗权限" -> Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
                                         else -> null
