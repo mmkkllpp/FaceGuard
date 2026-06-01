@@ -195,9 +195,12 @@ class FaceEnrollmentActivity : ComponentActivity() {
                     } catch (e: Exception) {
                         FileLogger.e("Camera", "相机绑定失败: ${e.message}\n${e.stackTraceToString()}")
                     }
-                }, ContextCompat.getMainExecutor(context)).addFailureListener {
-                    FileLogger.e("Camera", "CameraProvider 获取失败: ${it.message}")
-                }
+                }, ContextCompat.getMainExecutor(context))
+            } catch (e: java.util.concurrent.ExecutionException) {
+                FileLogger.e("Camera", "CameraProvider 获取失败: ${e.cause?.message}")
+            } catch (e: Exception) {
+                FileLogger.e("Camera", "CameraProvider 获取异常: ${e.message}")
+            }
             } catch (e: Exception) {
                 FileLogger.e("Camera", "相机初始化异常: ${e.message}\n${e.stackTraceToString()}")
             }
