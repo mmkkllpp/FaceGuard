@@ -28,7 +28,7 @@ class ArcFaceSession private constructor(private val ortSession: OrtSession) {
             val output = results.first().value
             val emb: FloatArray = when (output) {
                 is OnnxTensor -> {
-                    val buf = (output as OnnxTensor).asFloatBuffer()
+                    val buf: java.nio.FloatBuffer = (output as OnnxTensor).getFloatBuffer()
                     val arr = FloatArray(buf.remaining())
                     buf.get(arr)
                     arr
