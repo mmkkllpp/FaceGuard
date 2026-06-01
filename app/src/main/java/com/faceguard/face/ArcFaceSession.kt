@@ -27,9 +27,18 @@ class ArcFaceSession private constructor(private val ortSession: OrtSession) {
             val results = ortSession.run(mapOf(name to tensor))
             val output = results.first().value
             val emb: FloatArray = when (output) {
+                is OnnxTensor -> {
+                    val buf = (output as OnnxTensor).asFloatBuffer()
+                    val arr = FloatArray(buf.remaining())
+                    buf.get(arr)
+                    arr
+                }
                 is Array<*> -> (output as Array<FloatArray>)[0]
                 is FloatArray -> output as FloatArray
-                else -> { FileLogger.w("ArcFace", "未知输出类型: ${output::class}"); return null }
+                else -> {
+                    FileLogger.w("ArcFace", "未知输出类型: ${output.javaClass.name}")
+                    return null
+                }
             }
             l2Normalize(emb)
         } catch (e: Exception) {
